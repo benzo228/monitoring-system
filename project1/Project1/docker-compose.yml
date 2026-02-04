@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5050:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgresql/init-scripts:/docker-entrypoint-initdb.d
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:password@postgres:5432/myapp?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+    volumes:
+      - ./postgres-exporter/postgres_exporter.yml:/etc/postgres-exporter/postgres_exporter.yml
+
+  prometheus:
+    image: my-prometheus:1.0.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
