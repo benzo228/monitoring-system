@@ -1,3 +1,0 @@
-PostgreSQL → Postgres Exporter → Prometheus → Grafana
-    ↓              ↓                 ↓         ↓
-  База данных   Сбор метрик     Хранение   Визуализация
