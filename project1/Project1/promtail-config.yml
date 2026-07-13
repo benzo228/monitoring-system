@@ -1,0 +1,130 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Сбор логов всех Docker контейнеров
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Имя контейнера
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      
+      # Имя сервиса из docker-compose
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      
+      # Образ контейнера
+      - source_labels: ['__meta_docker_container_image']
+        target_label: 'image'
+      
+      # Логи отправляем с метками
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      
+      # Парсинг логов как JSON (если логи в JSON формате)
+      - source_labels: ['__meta_docker_container_label_logging']
+        target_label: 'logging'
+        regex: 'json'
+        action: replace
+
+  # Сбор системных логов (опционально)
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          host: myapp-server
+    path: /var/log/syslog
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<hostname>\S+)\s+(?P<program>\S+):\s+(?P<message>.*)$'
+      - labels:
+          program:
+          hostname:
+      - timestamp:
+          source: timestamp
+          format: Jan _2 15:04:05
+
+  # Сбор логов PostgreSQL (через volume)
+  - job_name: postgres_logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: postgres
+          service: postgres
+    path: /var/log/postgresql/*.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d{3}) (?P<timezone>\S+) \[(?P<pid>\d+)\] (?P<level>\S+) +(?P<query>\S+) +(?:\[(?P<detail>.*?)\])?'
+      - labels:
+          level:
+          pid:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+
+  # Сбор логов приложений (если есть)
+  - job_name: app_logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: myapp
+          service: myapp
+    path: /var/log/myapp/*.log
+    pipeline_stages:
+      # Если логи в JSON формате
+      - json:
+          expressions:
+            level: level
+            message: message
+            timestamp: timestamp
+            user_id: user_id
+      - labels:
+          level:
+          user_id:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # Сбор логов Nginx (если есть)
+  - job_name: nginx
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          service: nginx
+    path: /var/log/nginx/*.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>.*?)\] "(?P<request_method>\S+) (?P<request_uri>\S+) HTTP/\d\.\d" (?P<status>\d{3}) (?P<body_bytes_sent>\d+) "(?P<http_referer>.*?)" "(?P<http_user_agent>.*?)"'
+      - labels:
+          remote_addr:
+          status:
+          request_method:
+      - timestamp:
+          source: time_local
+          format: "02/Jan/2006:15:04:05 -0700"
+      - metrics:
+          nginx_requests_total:
+            type: Counter
+            description: "Total number of requests"
+            prefix: nginx_
+            max_age: 12h
+            config:
+              match_all: true
+              action: inc
