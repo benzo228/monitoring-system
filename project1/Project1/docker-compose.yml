@@ -24,6 +24,22 @@ services:
     volumes:
       - ./postgres-exporter/postgres_exporter.yml:/etc/postgres-exporter/postgres_exporter.yml
 
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+
   prometheus:
     image: my-prometheus:1.0.0
     ports:
@@ -31,6 +47,9 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+    depends_on:
+      - node-exporter
+      - postgres-exporter
 
   grafana:
     image: grafana/grafana
