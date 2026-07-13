@@ -1,5 +1,6 @@
 groups:
   - name: postgres_alerts
+    interval: 30s
     rules:
       - alert: PostgresDown
         expr: pg_up == 0
@@ -7,8 +8,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "PostgreSQL is down"
-          description: "PostgreSQL exporter cannot connect to the database"
+          summary: "PostgreSQL is down on {{ $labels.instance }}"
+          description: "PostgreSQL exporter cannot connect to the database on {{ $labels.instance }}. Please check if the database is running and accessible."
 
       - alert: HighConnections
         expr: pg_stat_activity_count > 50
@@ -16,4 +17,159 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High number of database connections"
+          summary: "High number of database connections on {{ $labels.instance }}"
+          description: "PostgreSQL on {{ $labels.instance }} has {{ $value }} active connections. Consider increasing max_connections or investigating connection leaks."
+
+      # Новые алерты для PostgreSQL
+      - alert: PostgresHighCPU
+        expr: (100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}. Check PostgreSQL query performance."
+
+      - alert: PostgresLowMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low memory on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}. Consider increasing memory allocation."
+
+      - alert: PostgresLowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100) < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Only {{ $value }}% free on root filesystem. Consider cleaning up or increasing disk space."
+
+      - alert: PostgresDeadlocks
+        expr: rate(pg_stat_database_deadlocks[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Deadlocks detected in PostgreSQL on {{ $labels.instance }}"
+          description: "{{ $value }} deadlocks detected per second. Investigate application queries."
+
+      - alert: PostgresSlowQueries
+        expr: rate(pg_stat_database_xact_rollback[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High transaction rollback rate on {{ $labels.instance }}"
+          description: "{{ $value }} rollbacks per second detected. Check application errors."
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL replication lag on {{ $labels.instance }}"
+          description: "Replication lag is {{ $value }} seconds. Check network or replica performance."
+
+  - name: node_alerts
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: (100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: LowMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low memory on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100) < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Only {{ $value }}% free on root filesystem"
+
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Instance {{ $labels.instance }} is down"
+          description: "{{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute"
+
+  - name: prometheus_alerts
+    interval: 30s
+    rules:
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus instance {{ $labels.instance }} is not responding"
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager instance {{ $labels.instance }} is not responding"
+
+      - alert: PrometheusTargetsDown
+        expr: count(up == 0) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Multiple Prometheus targets are down"
+          description: "{{ $value }} targets are down. Check exporters availability."
+
+      - alert: PrometheusHighScrapeLatency
+        expr: scrape_duration_seconds > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High scrape latency on {{ $labels.instance }}"
+          description: "Scrape duration is {{ $value }} seconds. Consider increasing timeout or optimizing queries."
+
+  - name: exporter_alerts
+    interval: 30s
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node Exporter is down on {{ $labels.instance }}"
+          description: "Node Exporter on {{ $labels.instance }} is not responding. System metrics are unavailable."
+
+      - alert: PostgresExporterDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL Exporter is down on {{ $labels.instance }}"
+          description: "PostgreSQL Exporter on {{ $labels.instance }} is not responding. Database metrics are unavailable."
